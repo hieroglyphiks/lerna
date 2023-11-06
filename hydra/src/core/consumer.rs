@@ -1,8 +1,11 @@
+use super::clients::{ClientRecord, ClientRecords};
 use super::config::{Config, ConsumedRecord};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use aws_sdk_dynamodb as dynamodb;
 use aws_sdk_kinesis as kinesis;
-use std::{any, string::String};
+use std::string::String;
+use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::task::JoinSet;
 
 pub struct Hydra {
     config: Config,
@@ -81,6 +84,50 @@ impl Hydra {
         }
 
         return Ok(());
+    }
+
+    pub fn output(&mut self) -> &Receiver<ConsumedRecord> {
+        return &self.consumer_rx;
+    }
+
+    pub async fn run(&mut self) -> Result<()> {
+        let mut tasks = JoinSet::new();
+
+        for i in 0..10 {
+            tasks.spawn(async move { return i });
+        }
+
+        while let Some(res) = tasks.join_next().await {
+            match res {
+                Ok(_) => {}
+                Err(e) => {
+                    tasks.abort_all();
+                    return Err(anyhow!("exiting run function with error: ${e}"));
+                }
+            }
+        }
+
+        return Ok(());
+    }
+
+    async fn get_clients(&mut self) -> Result<ClientRecords> {
+        let ddb_client = self.config.dynamodb_client.clone();
+        let request = ddb_client
+            .scan()
+            .table_name(self.config.clients_table_name.clone())
+            .consistent_read(true);
+
+        let response = request.send().await?;
+        let items = response.items();
+
+        for item in items {
+            // malformed row. TODO:: bubble error or something
+            if !item.contains_key("LastUpdate") {
+                continue;
+            }
+        }
+
+        return Err(anyhow!("placeholder"));
     }
 }
 
