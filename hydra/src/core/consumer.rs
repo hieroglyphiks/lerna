@@ -4,8 +4,9 @@ use anyhow::{anyhow, Result};
 use aws_sdk_dynamodb as dynamodb;
 use aws_sdk_kinesis as kinesis;
 use chrono::{Duration, Utc};
-use std::ops::Mul;
+use std::ops::{Add, Mul};
 use std::string::String;
+use std::time::Duration;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::task::JoinSet;
 
@@ -152,7 +153,41 @@ impl Hydra {
             return a.id.cmp(&b.id);
         });
 
-        return Err(anyhow!("placeholder"));
+        return Ok(client_records);
+    }
+
+    async fn register_client(&mut self, client_record: &mut ClientRecord) -> Result<()> {
+        let expiry_time =
+            Utc::now().add(Duration::seconds(REGISTRATION_FREQUENCY_SEC as i64).mul(3));
+
+        let request = self
+            .config
+            .dynamodb_client
+            .update_item()
+            .table_name(self.config.clients_table_name.clone())
+            .update_expression("SET #LU = :LU, #TTL = :TTL")
+            .expression_attribute_names("#LU", "LastUpdate")
+            .expression_attribute_names("#TTL", "TTL")
+            .expression_attribute_values(
+                ":LU",
+                dynamodb::types::AttributeValue::N(Utc::now().to_rfc3339()),
+            )
+            .expression_attribute_values(
+                ":TTL",
+                dynamodb::types::AttributeValue::N(expiry_time.to_rfc3339()),
+            )
+            .key(
+                "ID",
+                dynamodb::types::AttributeValue::S(client_record.id.clone()),
+            );
+
+        match request.send().await {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                let id = client_record.id.clone();
+                return Err(anyhow!("failed to update client registry for ${id}: ${e}"));
+            }
+        }
     }
 }
 
