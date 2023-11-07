@@ -528,8 +528,10 @@ checksum = "7f2c685bad3eb3d45a01354cedb7d5faa66194d1d58ba6e267a8de788f79db38"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
+ "js-sys",
  "num-traits",
  "serde",
+ "wasm-bindgen",
  "windows-targets",
 ]
 
@@ -907,11 +909,13 @@ dependencies = [
  "aws-config",
  "aws-sdk-dynamodb",
  "aws-sdk-kinesis",
+ "chrono",
  "futures",
  "rusoto_core",
  "rusoto_dynamodb",
  "rusoto_kinesis",
  "serde",
+ "serde_dynamo",
  "tokio",
 ]
 
@@ -1594,6 +1598,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "serde_dynamo"
+version = "4.2.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6db8e9a27c09b4856976519f3b9ac117e55a6e122a1ef073cd7cb7fa6928efd6"
+dependencies = [
+ "aws-sdk-dynamodb",
+ "base64 0.21.5",
+ "serde",
 ]
 
 [[package]]

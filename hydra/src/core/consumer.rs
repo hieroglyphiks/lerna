@@ -3,9 +3,14 @@ use super::config::{Config, ConsumedRecord};
 use anyhow::{anyhow, Result};
 use aws_sdk_dynamodb as dynamodb;
 use aws_sdk_kinesis as kinesis;
+use chrono::{Duration, Utc};
+use std::ops::Mul;
 use std::string::String;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::task::JoinSet;
+
+// CONSTANTS
+const REGISTRATION_FREQUENCY_SEC: u32 = 5;
 
 pub struct Hydra {
     config: Config,
@@ -120,12 +125,32 @@ impl Hydra {
         let response = request.send().await?;
         let items = response.items();
 
+        let mut client_records: ClientRecords = ClientRecords(Vec::new());
         for item in items {
-            // malformed row. TODO:: bubble error or something
-            if !item.contains_key("LastUpdate") {
-                continue;
+            let client_record_r = ClientRecord::from_dynamodb_item(item.clone());
+            match client_record_r {
+                Err(_) => {
+                    // TODO: callback error
+                }
+                Ok(client_record) => {
+                    // skip stale clients which have not been updated in
+                    // three regisration periods
+                    if Utc::now().signed_duration_since(client_record.last_update)
+                        > Duration::seconds(REGISTRATION_FREQUENCY_SEC as i64).mul(3)
+                    {
+                        continue;
+                    }
+
+                    client_records.0.push(Box::new(client_record));
+                }
             }
         }
+
+        // sort the client records for consistent ordering
+        // and resulting usability
+        client_records.0.sort_by(|a, b| {
+            return a.id.cmp(&b.id);
+        });
 
         return Err(anyhow!("placeholder"));
     }
