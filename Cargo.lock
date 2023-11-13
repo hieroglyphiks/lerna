@@ -917,6 +917,7 @@ dependencies = [
  "serde",
  "serde_dynamo",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

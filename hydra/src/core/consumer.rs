@@ -6,9 +6,11 @@ use aws_sdk_kinesis as kinesis;
 use chrono::{Duration, Utc};
 use std::ops::{Add, Mul};
 use std::string::String;
-use std::time::Duration;
+use tokio::select;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::task::JoinSet;
+use tokio::time as tokiotime;
+use tokio_util::sync::CancellationToken;
 
 // CONSTANTS
 const REGISTRATION_FREQUENCY_SEC: u32 = 5;
@@ -156,7 +158,7 @@ impl Hydra {
         return Ok(client_records);
     }
 
-    async fn register_client(&mut self, client_record: &mut ClientRecord) -> Result<()> {
+    async fn register_client_self(&mut self) -> Result<()> {
         let expiry_time =
             Utc::now().add(Duration::seconds(REGISTRATION_FREQUENCY_SEC as i64).mul(3));
 
@@ -178,14 +180,75 @@ impl Hydra {
             )
             .key(
                 "ID",
-                dynamodb::types::AttributeValue::S(client_record.id.clone()),
+                dynamodb::types::AttributeValue::S(self.config.client_name.clone()),
             );
 
         match request.send().await {
             Ok(_) => return Ok(()),
             Err(e) => {
-                let id = client_record.id.clone();
+                let id = self.config.client_name.clone();
                 return Err(anyhow!("failed to update client registry for ${id}: ${e}"));
+            }
+        }
+    }
+
+    async fn deregister_client_self(&mut self) -> Result<()> {
+        let request = self
+            .config
+            .dynamodb_client
+            .delete_item()
+            .table_name(self.config.clients_table_name.clone())
+            .key(
+                "ID",
+                dynamodb::types::AttributeValue::S(self.config.client_name.clone()),
+            );
+
+        match request.send().await {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                let id = self.config.client_name.clone();
+                return Err(anyhow!("failed to delete client registry for ${id}: ${e}"));
+            }
+        }
+    }
+
+    async fn maintain_client_registration_self(
+        &mut self,
+        cancellation_token: CancellationToken,
+    ) -> Result<()> {
+        // initial registration
+        match self.register_client_self().await {
+            Ok(_) => {}
+            Err(e) => {
+                return Err(anyhow!("failed initial client registration of self: ${e}"));
+            }
+        }
+
+        let mut registration_timer = tokiotime::interval(tokiotime::Duration::from_secs(
+            REGISTRATION_FREQUENCY_SEC.into(),
+        ));
+
+        loop {
+            select! {
+                _ = cancellation_token.cancelled() => {
+                    match self.deregister_client_self().await {
+                        Ok(_) => {}
+                        Err(e) => {
+                            // TODO: callback error
+                            return Err(anyhow!("failed to deregister self on maintain registration exit: ${e}"));
+                        }
+                    }
+                }
+                _ = registration_timer.tick() => {
+                    // continuous registration
+                    match self.register_client_self().await {
+                        Ok(_) => {}
+                        Err(_) => {
+                            // TODO: callback error
+                        }
+                    }
+                }
+
             }
         }
     }

@@ -56,6 +56,9 @@ pub struct Config {
     pub checkpoints_table_name: String,
     pub clients_table_name: String,
     pub application_name: String,
+    // identifier for this instantiation of the kinesis consumer.
+    // should be unique across this instantiation's application_name.
+    pub client_name: String,
 
     // Consumer
     pub consumer: Box<dyn Consumer>,
